@@ -59,12 +59,6 @@ cn = apply(cn,1,function(x) paste(x[1:3], collapse = ("_")))
 rn = matrix[-c(1:7),c(2)]
 rownames(matrix_num) = rn
 colnames(matrix_num) = cn
-remove_rows <- c(
-  "HYB-NEG","HYB-POS",
-  "OAZ1","POLR2A","RAB7A","SDHA","UBB",
-  "NegPrb1","NegPrb2","NegPrb3","NegPrb4","NegPrb5","NegPrb6"
-)
-matrix_norm <- matrix_num[ !rownames(matrix_num) %in% remove_rows, ]
 neg_control = matrix_num[c("HYB-NEG"), ]
 neg_control = as.numeric(neg_control)
 neg_control[neg_control == 0] <- 0.1
@@ -78,9 +72,25 @@ pos_ctrl_norm_factor <- function(pos_control) {
   return(list(Factor = factor, QC = qc))
 }
 result <- pos_ctrl_norm_factor(pos_control)
-df <- data.frame(Factor = result$Factor, QC = result$QC)
+df <- data.frame(Raw = pos_control, Factor = result$Factor, QC = result$QC)
 print(df)
 write.csv(df, "Positive_control_norm_factor.csv", row.names = FALSE)
+
+## Positive control data normalization
+matrix_norm <- matrix_num[-86, ]
+factor_vec <- result$Factor[colnames(matrix_norm)]
+matrix_norm <- sweep(matrix_norm, 2, factor_vec, `*`)
+matrix_norm <- matrix_norm[, result$QC == "PASS"]
+pheatmap(matrix_norm,
+         scale = "none", color = colorRampPalette(c("blue","white","green"))(100),
+         breaks = seq(min(matrix_sorted),
+                      max(matrix_sorted), length.out = 101),
+         cluster_cols = FALSE,
+         cluster_rows = TRUE,
+         fontsize_row = 6,
+         fontsize_col = 6,
+         width = 15,
+         height = 10)
 
 ##Limit of detection (LOD) control
 mean_neg = mean(neg_control)
