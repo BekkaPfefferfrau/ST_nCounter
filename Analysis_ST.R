@@ -23,7 +23,7 @@ ImagingQC <- function(file_path) {
       binding_qc <- "Missing BindingDensity"
     } else {
       binding_density <- as.numeric(sub("BindingDensity,", "", bd_line))
-      binding_qc <- ifelse(binding_density >= 0.1 & binding_density <= 1.8, "PASS", "FAIL")
+      binding_qc <- ifelse(binding_density >= 0.1 & binding_density <= 2.25, "PASS", "FAIL")
     }
     
     return(data.frame(
