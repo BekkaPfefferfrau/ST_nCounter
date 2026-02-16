@@ -2,14 +2,15 @@
 ## The follwoing code is written for data that was aquired using the Nanostring GeoMX panel "Immune pathways" and read out on the MAX/FLEX nCounter
 # The analysis steps are based on the manual "MAN-10154-01, GeoMx DSP Data Analysis User Manual, section Data QC for nCounter Readout".
 
+
 ##Installing packages
 if (!requireNamespace("pheatmap", quietly = TRUE))
   install.packages("pheatmap")
 library(pheatmap)
 
+
 ## In our case each .RCC files corresponds to 8 wells, resulting in a total of 24 .RCC files for 2x96-well plates
 #Fields of view (FOV) quality control (QC) and binding density (BD) using QC .RCC files
-
 files <- list.files("C:/ST", pattern = "^[^~].*\\.RCC$", full.names = TRUE)
 ImagingQC <- function(file_path) {
     lines <- readLines(file_path)
@@ -39,24 +40,25 @@ ImagingQC <- function(file_path) {
       stringsAsFactors = FALSE
     ))
 }
-
 QC_imaging_binding <- do.call(rbind, lapply(files, ImagingQC))
+write.csv(QC_imaging_binding, "RCC_QC_report.csv", row.names = FALSE)
 
 ##Preparing raw data matrix .txt
 # **this untangled data was provided by our collaborator, using DSPDA suite**
-matrix = read.table("C:/ST/matrix.txt", sep = "\t", header = FALSE)
-matrix_num = matrix[-c(1:7),-c(1:2)]
-matrix_num = apply(matrix_num, 2, as.numeric)
-matrix_num = as.matrix(matrix_num)
-cn = matrix[c(1,2,5),-c(1:2)]
+matrix1 = read.table("C:/ST/matrix.txt", sep = "\t", header = FALSE)
+matrix2 = matrix1[-c(1:7),-c(1:2)]
+matrix2 = apply(matrix2, 2, as.numeric)
+matrix2 = as.matrix(matrix2)
+cn = matrix1[c(1,2,5),-c(1:2)]
 cn = t(cn)
 cn = apply(cn,1,function(x) paste(x[1:3], collapse = ("_")))
-rn = matrix[-c(1:7),c(2)]
-rownames(matrix_num) = rn
-colnames(matrix_num) = cn
+rn = matrix1[-c(1:7),c(2)]
+rownames(matrix2) = rn
+colnames(matrix2) = cn
+
 
 ## Positive control normalization QC
-pos_control = matrix_num[c("HYB-POS"), ]
+pos_control = matrix2[c("HYB-POS"), ]
 pos_ctrl_norm_factor <- function(pos_control) {
   ref_median <- median(pos_control[pos_control > 0])
   factor <- ifelse(pos_control == 0, NA, ref_median / pos_control)
@@ -66,32 +68,47 @@ pos_ctrl_norm_factor <- function(pos_control) {
 result <- pos_ctrl_norm_factor(pos_control)
 df <- data.frame(Raw = pos_control, Factor = result$Factor, QC = result$QC)
 df$ROI <- names(pos_control)
-QC_combined <- merge(df, QC_imaging_binding, by = "ROI", all = TRUE)
-write.csv(QC_combined, "QC_report.csv", row.names = FALSE)
+write.csv(df, "HYB-POS_QC_report.csv", row.names = FALSE)
 
 
 ## Positive control data normalization
-matrix_norm <- matrix_num[!rownames(matrix_num) %in% "HYB-POS", ]
-factor_vec <- result$Factor[colnames(matrix_norm)]
-matrix_norm <- sweep(matrix_norm, 2, factor_vec, `*`)
-matrix_norm <- matrix_norm[, result$QC == "PASS"]
+matrix3 <- matrix2[!rownames(matrix2) %in% "HYB-POS", ]
+factor_vec <- result$Factor[colnames(matrix3)]
+matrix3 <- sweep(matrix3, 2, factor_vec, `*`)
+matrix3 <- matrix3[, result$QC == "PASS"]
 
+
+#Housekeeping genes normalization
+HK_control = matrix2[c("OAZ1", "POLR2A", "RAB7A", "SDHA", "UBB"), ]
+HK_matrix <- matrix3[HK_control, , drop = FALSE]
+HK_sum_per_roi <- colSums(HK_matrix)
+HK_median <- median(HK_sum_per_roi)
+HK_factor <- HK_median / HK_sum_per_roi
+HK_QC <- ifelse(HK_factor >= 0.1 & HK_factor <= 10, "PASS", "FAIL")
+hk_qc <- data.frame(Raw = HK_control, HK_QC)
+write.csv(hk_qc, "HK_QC_report.csv", row.names = FALSE)
+matrix_hk_norm <- sweep(matrix3, 2, hk_factor, `*`)
+
+
+# Negative probes
+neg_control = matrix2[c("NegPrb1", "NegPrb2", "NegPrb3", "NegPrb4", "NegPrb5"), ]
 
 # Annotation
-annotation = read.table("C:/ST/annotation.txt", sep = "\t", header = TRUE, colClasses="character")
-rn2 = annotation[,c(1:3)]
+annotation1 = read.table("C:/ST/annotation.txt", sep = "\t", header = TRUE, colClasses="character")
+rn2 = annotation1[,c(1:3)]
 rn2 = apply(rn2,1,function(x) paste(x[1:3], collapse = ("_")))
-annotation = annotation[,-c(1:3,5:8)]
-rownames(annotation) = rn2
+annotation1 = annotation1[,-c(1:3,5:8)]
+rownames(annotation1) = rn2
+common_rois <- intersect(colnames(matrix3), rownames(annotation1))
+annotation2 <- annotation1[common_rois, ]
 
-#Visualising first part just for fun
-sorted_cols <- rownames(annotation)[order(annotation$Segment.Tags)]
-matrix_sorted <- matrix_num[, sorted_cols]
-
-pheatmap(matrix_sorted,
+#Visualizing first part just for fun
+sorted_cols <- rownames(annotation2)[order(annotation2$distance)]
+matrix3 <- matrix3[, sorted_cols]
+pheatmap(matrix3,
          scale = "none", color = colorRampPalette(c("blue","white","green"))(100),
-         breaks = seq(min(matrix_sorted),
-                      max(matrix_sorted), length.out = 101),
+         breaks = seq(min(matrix3),
+                      max(matrix3), length.out = 101),
          cluster_cols = FALSE,
          cluster_rows = TRUE,
          fontsize_row = 6,
