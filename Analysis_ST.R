@@ -3,6 +3,40 @@ if (!requireNamespace("BiocManager", quietly = TRUE))
   install.packages("BiocManager")
 library(pheatmap)
 
+#Imaging quality control - RCC files
+files <- list.files("C:/ST", pattern = "\\.RCC$", full.names = TRUE)
+ImagingQC <- function(file_path) {
+    lines <- readLines(file_path)
+    fov_line <- lines[grep("^FovCount,", lines)]
+    fov_count <- as.numeric(sub("FovCount,", "", fov_line))
+    fovc_line <- lines[grep("^FovCounted,", lines)]
+    fov_counted <- as.numeric(sub("FovCounted,", "", fovc_line))
+    
+    if(length(fov_line) == 0 | length(fovc_line) == 0){
+      imaging_qc <- "Missing FOV info"
+    } else {
+      fov_ratio <- fov_counted / fov_count
+      imaging_qc <- ifelse(fov_ratio >= 0.75, "PASS", "FAIL")
+    }
+    bd_line <- lines[grep("^BindingDensity,", lines)]
+    if(length(bd_line) == 0){
+      binding_qc <- "Missing BindingDensity"
+    } else {
+      binding_density <- as.numeric(sub("BindingDensity,", "", bd_line))
+      binding_qc <- ifelse(binding_density >= 0.1 & binding_density <= 1.8, "PASS", "FAIL")
+    }
+    
+    return(data.frame(
+      File = basename(file_path),
+      ImagingQC = imaging_qc,
+      BindingDensityQC = binding_qc,
+      stringsAsFactors = FALSE
+    ))
+} 
+qc_results <- do.call(rbind, lapply(files, ImagingQC))
+print(qc_results)
+write.csv(qc_results, "RCC_QC_report.csv", row.names = FALSE)
+
 #Preparing data
 matrix = read.table("C:/ST/matrix.txt", sep = "\t", header = FALSE)
 matrix_num = matrix[-c(1:7),-c(1:2)]
