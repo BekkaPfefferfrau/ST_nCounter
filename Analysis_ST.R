@@ -1,6 +1,6 @@
 ### Spatial transcriptomic data analysis
 ## The follwoing code is written for data that was aquired using the Nanostring GeoMX panel "Immune pathways" and read out on the MAX/FLEX nCounter
-# The analysis steps are based on the manual "Gene Expression Data Analysis Guidelines, MAN-C0011-04".
+# The analysis steps are based on the manual "MAN-10154-01, GeoMx DSP Data Analysis User Manual, section Data QC for nCounter Readout".
 
 ##Installing packages
 if (!requireNamespace("BiocManager", quietly = TRUE))
@@ -11,7 +11,7 @@ if (!requireNamespace("pheatmap", quietly = TRUE))
 library(pheatmap)
 
 ## In our case each .RCC files corresponds to 8 wells, resulting in a total of 24 .RCC files for 2x96-well plates
-#Imaging quality control (QC) and binding density using .RCC files
+#Fields of view (FOV) quality control (QC) and binding density (BD) using QC .RCC files
 
 files <- list.files("C:/ST", pattern = "^[^~].*\\.RCC$", full.names = TRUE)
 ImagingQC <- function(file_path) {
@@ -43,12 +43,12 @@ ImagingQC <- function(file_path) {
     ))
 }
 
-qc_results <- do.call(rbind, lapply(files, ImagingQC))
-print(qc_results)
-write.csv(qc_results, "RCC_QC_report.csv", row.names = FALSE)
+QC_imaging_binding <- do.call(rbind, lapply(files, ImagingQC))
+print(QC_imaging_binding)
+write.csv(QC_imaging_binding, "RCC_QC_report.csv", row.names = FALSE)
 
-##Preparing expression matrix .txt
-# **this untangled data was provided by our collaborator, using DSPS suite**
+##Preparing raw data matrix .txt
+# **this untangled data was provided by our collaborator, using DSPDA suite**
 matrix = read.table("C:/ST/matrix.txt", sep = "\t", header = FALSE)
 matrix_num = matrix[-c(1:7),-c(1:2)]
 matrix_num = apply(matrix_num, 2, as.numeric)
@@ -59,16 +59,28 @@ cn = apply(cn,1,function(x) paste(x[1:3], collapse = ("_")))
 rn = matrix[-c(1:7),c(2)]
 rownames(matrix_num) = rn
 colnames(matrix_num) = cn
+remove_rows <- c(
+  "HYB-NEG","HYB-POS",
+  "OAZ1","POLR2A","RAB7A","SDHA","UBB",
+  "NegPrb1","NegPrb2","NegPrb3","NegPrb4","NegPrb5","NegPrb6"
+)
+matrix_norm <- matrix_num[ !rownames(matrix_num) %in% remove_rows, ]
 neg_control = matrix_num[c("HYB-NEG"), ]
 neg_control = as.numeric(neg_control)
 neg_control[neg_control == 0] <- 0.1
 pos_control = matrix_num[c("HYB-POS"), ]
-pos_control = as.numeric(pos_control)
 
-##Positive Control Linearity QC
-# From the manual "Gene Expression Data Analysis Guidelines, MAN-C0011-04":
-# "Six synthetic DNA control targets are included with every nCounter Gene Expression assay. Their concentrations range linearly from 128 fM to 0.125 fM, and they are referred to as POS_A to POS_F, respectively."
-# Unfortunately I don't have any access to that data
+## Positive control normalization QC
+pos_ctrl_norm_factor <- function(pos_control) {
+  ref_median <- median(pos_control[pos_control > 0])
+  factor <- ifelse(pos_control == 0, NA, ref_median / pos_control)
+  qc <- ifelse(!is.na(factor) & factor >= 0.3 & factor <= 3, "PASS", "FAIL")
+  return(list(Factor = factor, QC = qc))
+}
+result <- pos_ctrl_norm_factor(pos_control)
+df <- data.frame(Factor = result$Factor, QC = result$QC)
+print(df)
+write.csv(df, "Positive_control_norm_factor.csv", row.names = FALSE)
 
 ##Limit of detection (LOD) control
 mean_neg = mean(neg_control)
@@ -78,13 +90,15 @@ LOD_pass = pos_control > LOD_threshold
 prop_pass = mean(LOD_pass)
 geo_mean_neg = exp(mean(log(neg_control)))
 
-qc_list <- data.frame(
-  ID = tools::file_path_sans_ext(basename(files)),
+LOD_list <- data.frame(
+  ID = IDs,
   LOD_QC = ifelse(LOD_pass, "PASS", "FAIL"),
   stringsAsFactors = FALSE
 )
 
-print(qc_list)
+print(LOD_list)
+
+print(LOD_list)
 
 
 #Assay efficiency
@@ -98,6 +112,8 @@ all_values = as.numeric(matrix_num)
 all_values[all_values <= 0] <- 0.1
 geo_mean_all = exp(mean(log(all_values)))
 assay_efficiency = geo_mean_pos/geo_mean_all
+
+
 
 
 #Visualising first part just for fun
