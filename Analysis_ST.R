@@ -1,10 +1,19 @@
-#Installing packages
+### Spatial transcriptomic data analysis
+## The follwoing code is written for data that was aquired using the Nanostring GeoMX panel "Immune pathways" and read out on the MAX/FLEX nCounter
+# The analysis steps are based on the manual "Gene Expression Data Analysis Guidelines, MAN-C0011-04".
+
+##Installing packages
 if (!requireNamespace("BiocManager", quietly = TRUE))
   install.packages("BiocManager")
+library(BiocManager)
+if (!requireNamespace("pheatmap", quietly = TRUE))
+  install.packages("pheatmap")
 library(pheatmap)
 
-#Imaging quality control - RCC files
-files <- list.files("C:/ST", pattern = "\\.RCC$", full.names = TRUE)
+## In our case each .RCC files corresponds to 8 wells, resulting in a total of 24 .RCC files for 2x96-well plates
+#Imaging quality control (QC) and binding density using .RCC files
+
+files <- list.files("C:/ST", pattern = "^[^~].*\\.RCC$", full.names = TRUE)
 ImagingQC <- function(file_path) {
     lines <- readLines(file_path)
     fov_line <- lines[grep("^FovCount,", lines)]
@@ -32,12 +41,14 @@ ImagingQC <- function(file_path) {
       BindingDensityQC = binding_qc,
       stringsAsFactors = FALSE
     ))
-} 
+}
+
 qc_results <- do.call(rbind, lapply(files, ImagingQC))
 print(qc_results)
 write.csv(qc_results, "RCC_QC_report.csv", row.names = FALSE)
 
-#Preparing data
+##Preparing expression matrix .txt
+# **this untangled data was provided by our collaborator, using DSPS suite**
 matrix = read.table("C:/ST/matrix.txt", sep = "\t", header = FALSE)
 matrix_num = matrix[-c(1:7),-c(1:2)]
 matrix_num = apply(matrix_num, 2, as.numeric)
@@ -48,11 +59,46 @@ cn = apply(cn,1,function(x) paste(x[1:3], collapse = ("_")))
 rn = matrix[-c(1:7),c(2)]
 rownames(matrix_num) = rn
 colnames(matrix_num) = cn
-annotation = read.table("C:/ST/annotation.txt", sep = "\t", header = TRUE, colClasses="character")
-rn2 = annotation[,c(1:3)]
-rn2 = apply(rn2,1,function(x) paste(x[1:3], collapse = ("_")))
-annotation = annotation[,-c(1:3,5:8)]
-rownames(annotation) = rn2
+neg_control = matrix_num[c("HYB-NEG"), ]
+neg_control = as.numeric(neg_control)
+neg_control[neg_control == 0] <- 0.1
+pos_control = matrix_num[c("HYB-POS"), ]
+pos_control = as.numeric(pos_control)
+
+##Positive Control Linearity QC
+# From the manual "Gene Expression Data Analysis Guidelines, MAN-C0011-04":
+# "Six synthetic DNA control targets are included with every nCounter Gene Expression assay. Their concentrations range linearly from 128 fM to 0.125 fM, and they are referred to as POS_A to POS_F, respectively."
+# Unfortunately I don't have any access to that data
+
+##Limit of detection (LOD) control
+mean_neg = mean(neg_control)
+sd_neg = sd(neg_control)
+LOD_threshold = mean_neg + 2 * sd_neg
+LOD_pass = pos_control > LOD_threshold
+prop_pass = mean(LOD_pass)
+geo_mean_neg = exp(mean(log(neg_control)))
+
+qc_list <- data.frame(
+  ID = tools::file_path_sans_ext(basename(files)),
+  LOD_QC = ifelse(LOD_pass, "PASS", "FAIL"),
+  stringsAsFactors = FALSE
+)
+
+print(qc_list)
+
+
+#Assay efficiency
+reference = matrix_num[c("OAZ1","POLR2A","RAB7A","SDHA","UBB"), ]
+background = matrix_num[c("NegPrb1","NegPrb2","NegPrb3","NegPrb4","NegPrb5","NegPrb6"), ]
+
+
+geo_mean_pos = exp(mean(log(pos_control)))
+
+all_values = as.numeric(matrix_num)
+all_values[all_values <= 0] <- 0.1
+geo_mean_all = exp(mean(log(all_values)))
+assay_efficiency = geo_mean_pos/geo_mean_all
+
 
 #Visualising first part just for fun
 sorted_cols <- rownames(annotation)[order(annotation$Segment.Tags)]
@@ -69,35 +115,15 @@ pheatmap(matrix_sorted,
          width = 15,
          height = 10)
 
-#Limit of detection berechnen
-neg_control = matrix_num[c("HYB-NEG"), ]
-neg_control = as.numeric(neg_control)
-neg_control[neg_control == 0] <- 0.1
-pos_control = matrix_num[c("HYB-POS"), ]
-pos_control = as.numeric(pos_control)
-mean_neg = mean(neg_control)
-sd_neg = sd(neg_control)
-LOD_threshold = mean_neg + 2 * sd_neg
-LOD_pass = pos_control > LOD_threshold
-prop_pass = mean(LOD_pass)
-geo_mean_neg = exp(mean(log(neg_control)))
-
-#Assay efficiency berechnen
-reference = matrix_num[c("OAZ1","POLR2A","RAB7A","SDHA","UBB"), ]
-background = matrix_num[c("NegPrb1","NegPrb2","NegPrb3","NegPrb4","NegPrb5","NegPrb6"), ]
-
-
-geo_mean_pos = exp(mean(log(pos_control)))
-
-all_values = as.numeric(matrix_num)
-all_values[all_values <= 0] <- 0.1
-geo_mean_all = exp(mean(log(all_values)))
-assay_efficiency = geo_mean_pos/geo_mean_all
-
-
 
 #Background and Normalization
 
 
 #Ratios and Differential Expression
 
+# Annotation
+annotation = read.table("C:/ST/annotation.txt", sep = "\t", header = TRUE, colClasses="character")
+rn2 = annotation[,c(1:3)]
+rn2 = apply(rn2,1,function(x) paste(x[1:3], collapse = ("_")))
+annotation = annotation[,-c(1:3,5:8)]
+rownames(annotation) = rn2
