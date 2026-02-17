@@ -107,25 +107,26 @@ matrix3 <- (function(x) {
 ##Housekeeping QC
 
 write.csv(
-  HK_ctrl <- matrix3[rownames(matrix3) %in% c("OAZ1", "POLR2A", "RAB7A", "SDHA", "UBB"), , drop = FALSE]
+  data.frame(
+    Sample_ID = colnames(matrix3),
+    t(matrix3[c("OAZ1","POLR2A","RAB7A","SDHA","UBB"), , drop = FALSE]),
+    HK_sum = colSums(matrix3[c("OAZ1","POLR2A","RAB7A","SDHA","UBB"), , drop = FALSE]),
+    HK_median = median(colSums(matrix3[c("OAZ1","POLR2A","RAB7A","SDHA","UBB"), , drop = FALSE])),
+    Factor = (function(x) { med <- median(x); med / x })(
+      colSums(matrix3[c("OAZ1","POLR2A","RAB7A","SDHA","UBB"), , drop = FALSE])
+    ),
+    QC = (function(x) { fac <- median(x) / x; ifelse(fac >= 0.1 & fac <= 10, "PASS", "FAIL") })(
+      colSums(matrix3[c("OAZ1","POLR2A","RAB7A","SDHA","UBB"), , drop = FALSE])
+    )
+  ),
+  "HK_QC_report.csv",
+  row.names = FALSE
+)
+#creating a .csv file with the HK_report
+#Rownames are taken from matrix3
 
-#Creating a matrix containing all the housekeeping genes
 
-HK_ctrl_function <- function(HK_ctrl){
-  HK_sum <- colSums(HK_ctrl)
-  HK_median <- median(HK_sum)
-  HK_factor <- HK_median / HK_sum
-  HK_qc <- ifelse(HK_factor >= 0.1 & HK_factor <= 10, "PASS", "FAIL")
-}
-
-
-HK_ctrl_qc <- HK_ctrl_function(HK_ctrl)
-
-write.csv(df2, "HK_QC_report.csv", row.names = FALSE)
-matrix4 <- sweep(matrix3, 2, HK_factor, `*`)
-matrix4 <- matrix3[, result$QC == "PASS"]
-
-## Housekeeping data normalization
+## Housekeeping data normalization (not necessary for our samples as they all passed but I will still write the code for the sake of completeness)
 
 
 
