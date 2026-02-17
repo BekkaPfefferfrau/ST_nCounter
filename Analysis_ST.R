@@ -62,56 +62,52 @@ colnames(matrix2) = apply(t(matrix1[c(1,2,5),-c(1:2)]),1,function(x) paste(x[1:3
 
 ## Positive control QC
 
-pos_ctrl = matrix2["HYB-POS", ]
-#creating a vector of the positive hybridisation control
-
-pos_ctrl_function <- function(pos_ctrl) {
-  pos_ctrl_median <- median(pos_ctrl[pos_ctrl > 0])
-  pos_ctrl_factor <- ifelse(pos_ctrl == 0, NA, pos_ctrl_median / pos_ctrl)
-  pos_ctrl_qc <- ifelse(!is.na(pos_ctrl_factor) & pos_ctrl_factor >= 0.3 & pos_ctrl_factor <= 3, "PASS", "FAIL")
-  return(list(Factor = pos_ctrl_factor, QC = pos_ctrl_qc))
-}
+write.csv(
+  data.frame(
+    Sample_ID = names(matrix2["HYB-POS", ]),
+    Pos_ctrl = matrix2["HYB-POS", ],
+    Factor = (function(x) { med <- median(x[x > 0]); ifelse(x == 0, NA, med / x) })(matrix2["HYB-POS", ]),
+    QC = (function(x) { 
+      med <- median(x[x > 0]); 
+      fac <- ifelse(x == 0, NA, med / x)
+      ifelse(!is.na(fac) & fac >= 0.3 & fac <= 3, "PASS", "FAIL")
+    })(matrix2["HYB-POS", ])
+  ),
+  "HYB-POS_QC_report.csv",
+  row.names = FALSE
+)
+#creating a .csv file containing the HYB_POS_QC_report
 #calculating the median of all positive controls, using only numerical larger than 0
 #calculating the pos_ctrl_factor by dividing the pos_ctrl_median trough each value, if larger than 0; in case of 0 return NA
 #testing if the pos_ctrl_factor meets the requirement lager or equal 0.3 and smaller or equal 3
 #creating a list with the column name "Factor" for the pos_ctrl_factor and QC for the pos_ctrl_qc
 
-HYB_POS_QC_report <- data.frame(
-  Sample_ID = names(pos_ctrl),
-  Pos_ctrl = pos_ctrl,
-  Factor = pos_ctrl_function(pos_ctrl)$Factor,
-  QC = pos_ctrl_function(pos_ctrl)$QC
-  )
-#creating a new matrix, containing the raw POS-HYB values, the pos_ctrl_factor and the pos_ctrl_qc results
-
-write.csv(
-  HYB_POS_QC_report,
-  "HYB-POS_QC_report.csv",
-  row.names = FALSE
-)
-#creating a .csv file containing the HYB_POS_QC_report
-
 
 ## Positive control data normalization
 
-matrix3 <- {
-  pos_ctrl_qc <- pos_ctrl_function(pos_ctrl)
-  common_cols <- intersect(colnames(matrix2), names(pos_ctrl_qc$Factor))
-  sweep(matrix2[rownames(matrix2) != "HYB-POS", common_cols, drop = FALSE],
-        2,
-        pos_ctrl_qc$Factor[common_cols],
-        `*`)[, pos_ctrl_qc$QC[common_cols] == "PASS", drop = FALSE]
-}
+matrix3 <- (function(x) {
+  pos_ctrl <- x["HYB-POS", ]
+  pos_ctrl_median <- median(pos_ctrl[pos_ctrl > 0])
+  pos_ctrl_factor <- ifelse(pos_ctrl == 0, NA, pos_ctrl_median / pos_ctrl)
+  pos_ctrl_qc <- ifelse(!is.na(pos_ctrl_factor) & pos_ctrl_factor >= 0.3 & pos_ctrl_factor <= 3, "PASS", "FAIL")
+  cols <- intersect(colnames(x), names(pos_ctrl_factor))
+  sweep(
+    x[rownames(x) != "HYB-POS", cols, drop = FALSE],
+    2,
+    pos_ctrl_factor[cols],
+    `*`
+  )[, pos_ctrl_qc[cols] == "PASS", drop = FALSE]
+})(matrix2)
 
-#
-#creating matrix3 by removing the "HYB-POS" row from matrix2
-#multiplying the values from each column with the respective pos_ctrl_factor with sampleID matching
+#creating matrix3 by removing "HYB-POS" row from matrix2, making sure that the sampleIDs of matrix2 and the pos_ctrl_function results are matching
+#Multiplying the positive_ctrl factor from the function pos_ctrl_function with the respective values from each column with the respective pos_ctrl_factor with sampleID matching
 #removing all samples that failed the pos_ctrl_qc with sampleID matching
 
 
 ##Housekeeping QC
 
-HK_ctrl <- matrix3[rownames(matrix3) %in% c("OAZ1", "POLR2A", "RAB7A", "SDHA", "UBB"), , drop = FALSE]
+write.csv(
+  HK_ctrl <- matrix3[rownames(matrix3) %in% c("OAZ1", "POLR2A", "RAB7A", "SDHA", "UBB"), , drop = FALSE]
 
 #Creating a matrix containing all the housekeeping genes
 
