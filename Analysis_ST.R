@@ -1,4 +1,4 @@
-### Spatial transcriptomic data analysis
+### Spatial transcriptomic data analysis - GeoMX DSP nCounter readout
 ## The follwoing code is written for data that was aquired using the Nanostring GeoMX panel "Immune pathways" and read out on the MAX/FLEX nCounter
 # The analysis steps are based on the manual "MAN-10154-01, GeoMx DSP Data Analysis User Manual, section Data QC for nCounter Readout".
 
@@ -43,54 +43,102 @@ ImagingQC <- function(file_path) {
 QC_imaging_binding <- do.call(rbind, lapply(files, ImagingQC))
 write.csv(QC_imaging_binding, "RCC_QC_report.csv", row.names = FALSE)
 
+
 ##Preparing raw data matrix .txt
 # **this untangled data was provided by our collaborator, using DSPDA suite**
+
 matrix1 = read.table("C:/ST/matrix.txt", sep = "\t", header = FALSE)
-matrix2 = matrix1[-c(1:7),-c(1:2)]
-matrix2 = apply(matrix2, 2, as.numeric)
-matrix2 = as.matrix(matrix2)
-cn = matrix1[c(1,2,5),-c(1:2)]
-cn = t(cn)
-cn = apply(cn,1,function(x) paste(x[1:3], collapse = ("_")))
-rn = matrix1[-c(1:7),c(2)]
-rownames(matrix2) = rn
-colnames(matrix2) = cn
+#creating object "matrix1" from the raw data file
+
+matrix2 = as.matrix(apply(matrix1[-c(1:7),-c(1:2)], 2, as.numeric))
+#creating a numeric table from matrix1 that contains only the numbers
+
+rownames(matrix2) = matrix1[-c(1:7),c(2)]
+#setting the rownames, using the geneID string from matrix1
+
+colnames(matrix2) = apply(t(matrix1[c(1,2,5),-c(1:2)]),1,function(x) paste(x[1:3], collapse = ("_")))
+#setting the column names, using a string combination of sampleID_ROI_morphologymarker from matrix1
 
 
-## Positive control normalization QC
-pos_control = matrix2[c("HYB-POS"), ]
-pos_ctrl_norm_factor <- function(pos_control) {
-  ref_median <- median(pos_control[pos_control > 0])
-  factor <- ifelse(pos_control == 0, NA, ref_median / pos_control)
-  qc <- ifelse(!is.na(factor) & factor >= 0.3 & factor <= 3, "PASS", "FAIL")
-  return(list(Factor = factor, QC = qc))
+## Positive control QC
+
+pos_ctrl = matrix2["HYB-POS", ]
+#creating a vector of the positive hybridisation control
+
+pos_ctrl_function <- function(pos_ctrl) {
+  pos_ctrl_median <- median(pos_ctrl[pos_ctrl > 0])
+  pos_ctrl_factor <- ifelse(pos_ctrl == 0, NA, pos_ctrl_median / pos_ctrl)
+  pos_ctrl_qc <- ifelse(!is.na(pos_ctrl_factor) & pos_ctrl_factor >= 0.3 & pos_ctrl_factor <= 3, "PASS", "FAIL")
+  return(list(Factor = pos_ctrl_factor, QC = pos_ctrl_qc))
 }
-result <- pos_ctrl_norm_factor(pos_control)
-df <- data.frame(Raw = pos_control, Factor = result$Factor, QC = result$QC)
-df$ROI <- names(pos_control)
-write.csv(df, "HYB-POS_QC_report.csv", row.names = FALSE)
+#calculating the median of all positive controls, using only numerical larger than 0
+#calculating the pos_ctrl_factor by dividing the pos_ctrl_median trough each value, if larger than 0; in case of 0 return NA
+#testing if the pos_ctrl_factor meets the requirement lager or equal 0.3 and smaller or equal 3
+#creating a list with the column name "Factor" for the pos_ctrl_factor and QC for the pos_ctrl_qc
+
+HYB_POS_QC_report <- data.frame(
+  Sample_ID = names(pos_ctrl),
+  Pos_ctrl = pos_ctrl,
+  Factor = pos_ctrl_function(pos_ctrl)$Factor,
+  QC = pos_ctrl_function(pos_ctrl)$QC
+  )
+#creating a new matrix, containing the raw POS-HYB values, the pos_ctrl_factor and the pos_ctrl_qc results
+
+write.csv(
+  HYB_POS_QC_report,
+  "HYB-POS_QC_report.csv",
+  row.names = FALSE
+)
+#creating a .csv file containing the HYB_POS_QC_report
 
 
 ## Positive control data normalization
-matrix3 <- matrix2[!rownames(matrix2) %in% "HYB-POS", ]
-factor_vec <- result$Factor[colnames(matrix3)]
-matrix3 <- sweep(matrix3, 2, factor_vec, `*`)
-matrix3 <- matrix3[, result$QC == "PASS"]
+
+matrix3 <- {
+  pos_ctrl_qc <- pos_ctrl_function(pos_ctrl)
+  common_cols <- intersect(colnames(matrix2), names(pos_ctrl_qc$Factor))
+  sweep(matrix2[rownames(matrix2) != "HYB-POS", common_cols, drop = FALSE],
+        2,
+        pos_ctrl_qc$Factor[common_cols],
+        `*`)[, pos_ctrl_qc$QC[common_cols] == "PASS", drop = FALSE]
+}
+
+#
+#creating matrix3 by removing the "HYB-POS" row from matrix2
+#multiplying the values from each column with the respective pos_ctrl_factor with sampleID matching
+#removing all samples that failed the pos_ctrl_qc with sampleID matching
 
 
-#Housekeeping genes normalization
-HK_control = matrix2[c("OAZ1", "POLR2A", "RAB7A", "SDHA", "UBB"), ]
-HK_matrix <- matrix3[HK_control, , drop = FALSE]
-HK_sum_per_roi <- colSums(HK_matrix)
-HK_median <- median(HK_sum_per_roi)
-HK_factor <- HK_median / HK_sum_per_roi
-HK_QC <- ifelse(HK_factor >= 0.1 & HK_factor <= 10, "PASS", "FAIL")
-hk_qc <- data.frame(Raw = HK_control, HK_QC)
-write.csv(hk_qc, "HK_QC_report.csv", row.names = FALSE)
-matrix_hk_norm <- sweep(matrix3, 2, hk_factor, `*`)
+##Housekeeping QC
+
+HK_ctrl <- matrix3[rownames(matrix3) %in% c("OAZ1", "POLR2A", "RAB7A", "SDHA", "UBB"), , drop = FALSE]
+
+#Creating a matrix containing all the housekeeping genes
+
+HK_ctrl_function <- function(HK_ctrl){
+  HK_sum <- colSums(HK_ctrl)
+  HK_median <- median(HK_sum)
+  HK_factor <- HK_median / HK_sum
+  HK_qc <- ifelse(HK_factor >= 0.1 & HK_factor <= 10, "PASS", "FAIL")
+}
 
 
-# Negative probes
+HK_ctrl_qc <- HK_ctrl_function(HK_ctrl)
+
+write.csv(df2, "HK_QC_report.csv", row.names = FALSE)
+matrix4 <- sweep(matrix3, 2, HK_factor, `*`)
+matrix4 <- matrix3[, result$QC == "PASS"]
+
+## Housekeeping data normalization
+
+
+
+
+
+
+
+
+## Negative control QC
 neg_control = matrix2[c("NegPrb1", "NegPrb2", "NegPrb3", "NegPrb4", "NegPrb5"), ]
 
 # Annotation
