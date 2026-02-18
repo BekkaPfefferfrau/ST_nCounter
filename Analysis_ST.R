@@ -63,20 +63,20 @@ QC_imaging_binding <- (function() {
 })()
 
 
-
 ##Preparing raw data matrix .txt
 # **this untangled data was provided by our collaborator, using DSPDA suite**
 
 matrix1 = read.table("C:/ST/matrix.txt", sep = "\t", header = FALSE)
-#creating object "matrix1" from the raw data file
+#creating "matrix1" from the raw data file
 
-matrix2 = as.matrix(apply(matrix1[-c(1:7),-c(1:2)], 2, as.numeric))
+matrix2 <- (function(x){
+  m <- as.matrix(apply(x[-c(1:7), -c(1:2)], 2, as.numeric))
+  rownames(m) <- x[-c(1:7), 2]
+  colnames(m) <- apply(t(x[c(1, 2, 5), -c(1:2)]), 1, function(y) paste(y[1:3], collapse = "_"))
+  return(m)  # <- entscheidend
+})(matrix1)
 #creating a numeric table from matrix1 that contains only the numbers
-
-rownames(matrix2) = matrix1[-c(1:7),c(2)]
 #setting the rownames, using the geneID string from matrix1
-
-colnames(matrix2) = apply(t(matrix1[c(1,2,5),-c(1:2)]),1,function(x) paste(x[1:3], collapse = ("_")))
 #setting the column names, using a string combination of sampleID_ROI_morphologymarker from matrix1
 
 
@@ -102,6 +102,17 @@ write.csv(
 #testing if the pos_ctrl_factor meets the requirement lager or equal 0.3 and smaller or equal 3
 #creating a list with the column name "Factor" for the pos_ctrl_factor and QC for the pos_ctrl_qc
 
+pos_ctrl_raw_boxplot <- (function(x){
+  pos_data <- x["HYB-POS", , drop = FALSE]
+  boxplot(
+    pos_data,
+    names = colnames(x),
+    las = 2,
+    main = "HYB-POS per sample",
+    ylab = "Signal",
+    outline = FALSE
+  )
+})(matrix2)
 
 ## Positive control data normalization
 
@@ -123,7 +134,23 @@ matrix3 <- (function(x) {
 #Multiplying the positive_ctrl factor from the function pos_ctrl_function with the respective values from each column with the respective pos_ctrl_factor with sampleID matching
 #removing all samples that failed the pos_ctrl_qc with sampleID matching
 
-##Scale to are
+pos_ctrl_ratio_boxplot <- (function(x){
+  pos_ctrl <- x["HYB-POS", , drop = FALSE]
+  pos_ctrl_median <- median(pos_ctrl[pos_ctrl > 0])
+  pos_ctrl_factor <- ifelse(pos_ctrl == 0, NA, pos_ctrl_median / pos_ctrl)
+  boxplot(
+    pos_ctrl_factor,
+    names = colnames(x),
+    las = 2,
+    main = "HYB-POS factor per sample",
+    ylab = "Signal",
+    outline = FALSE
+  )
+  abline(h = 3, col = "red", lty = 1, lwd = 1)
+  abline(h = 0.3, col = "red", lty = 1, lwd = 1)
+})(matrix2)
+
+##Scale to area
 #here we should do the first normalization step according to the ROI are but I do not have this information
 #--> need to ask collaborator to provide this
 
@@ -134,14 +161,15 @@ write.csv(
   data.frame(
     Sample_ID = colnames(matrix3),
     t(matrix3[c("OAZ1","POLR2A","RAB7A","SDHA","UBB"), , drop = FALSE]),
-    HK_sum = colSums(matrix3[c("OAZ1","POLR2A","RAB7A","SDHA","UBB"), , drop = FALSE]),
-    HK_median = median(colSums(matrix3[c("OAZ1","POLR2A","RAB7A","SDHA","UBB"), , drop = FALSE])),
-    Factor = (function(x) { med <- median(x); med / x })(
-      colSums(matrix3[c("OAZ1","POLR2A","RAB7A","SDHA","UBB"), , drop = FALSE])
-    ),
-    QC = (function(x) { fac <- median(x) / x; ifelse(fac >= 0.1 & fac <= 10, "PASS", "FAIL") })(
-      colSums(matrix3[c("OAZ1","POLR2A","RAB7A","SDHA","UBB"), , drop = FALSE])
-    )
+    Factor = (function(x) { 
+      med <- median(x[x > 0])
+      ifelse(x == 0, NA, med / x)
+    })(colSums(matrix3[c("OAZ1","POLR2A","RAB7A","SDHA","UBB"), , drop = FALSE])),
+    QC = (function(x) { 
+      med <- median(x[x > 0])
+      fac <- ifelse(x == 0, NA, med / x)
+      ifelse(!is.na(fac) & fac >= 0.1 & fac <= 10, "PASS", "FAIL")
+    })(colSums(matrix3[c("OAZ1","POLR2A","RAB7A","SDHA","UBB"), , drop = FALSE]))
   ),
   "HK_QC_report.csv",
   row.names = FALSE
@@ -182,6 +210,19 @@ matrix5 <- (function(x) {
     neg_ctrl_factor[cols],
     '*')
 })(matrix4)
+# calculating a negative control factor by using the 5 isotype controls
+# then removing the isotype controls and multiplying each by its own factor
+
+negative_ctrl_boxplot <- (function(x){
+  neg_probes <- c("NegPrb1","NegPrb2","NegPrb3","NegPrb4","NegPrb5")
+  neg_data <- matrix4[neg_probes, , drop = FALSE]
+  boxplot(
+    neg_data,
+    las = 2,
+    main = "Negative controls per sample",
+    ylab = "Signal",
+    outline = FALSE)
+})(neg_probes)
 
 
 ## Negative hybridization control
@@ -200,17 +241,6 @@ annotation2 <- (function(x){
 
 
 #Visualizing first part just for fun
-negative_ctrl_boxplot <- (function(x){
-  neg_probes <- c("NegPrb1","NegPrb2","NegPrb3","NegPrb4","NegPrb5")
-  neg_data <- matrix4[neg_probes, , drop = FALSE]
-  boxplot(
-    neg_data,
-    las = 2,
-    main = "Negative controls per sample",
-    ylab = "Signal",
-    outline = FALSE)
-})(neg_probes)
-
 
 matrix_sort_heatmap <- (function(x){
   sorted_cols <- rownames(annotation2)[order(annotation2$distance)]
