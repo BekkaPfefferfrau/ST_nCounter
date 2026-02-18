@@ -11,37 +11,57 @@ library(pheatmap)
 
 ## In our case each .RCC files corresponds to 8 wells, resulting in a total of 24 .RCC files for 2x96-well plates
 #Fields of view (FOV) quality control (QC) and binding density (BD) using QC .RCC files
-files <- list.files("C:/ST", pattern = "^[^~].*\\.RCC$", full.names = TRUE)
-ImagingQC <- function(file_path) {
+
+QC_imaging_binding <- (function() {
+
+  files <- list.files(
+    "C:/ST",
+    pattern = "^[^~].*\\.RCC$",
+    full.names = TRUE
+  )
+
+  ImagingQC <- function(file_path) {
+
     lines <- readLines(file_path)
-    fov_line <- lines[grep("^FovCount,", lines)]
-    fov_count <- as.numeric(sub("FovCount,", "", fov_line))
+
+    fov_line  <- lines[grep("^FovCount,", lines)]
     fovc_line <- lines[grep("^FovCounted,", lines)]
-    fov_counted <- as.numeric(sub("FovCounted,", "", fovc_line))
-    
-    if(length(fov_line) == 0 | length(fovc_line) == 0){
+
+    if (length(fov_line) == 0 || length(fovc_line) == 0) {
       imaging_qc <- "Missing FOV info"
     } else {
-      fov_ratio <- fov_counted / fov_count
-      imaging_qc <- ifelse(fov_ratio >= 0.75, "PASS", "FAIL")
+      fov_count   <- as.numeric(sub("FovCount,", "", fov_line))
+      fov_counted <- as.numeric(sub("FovCounted,", "", fovc_line))
+      imaging_qc  <- ifelse(fov_counted / fov_count >= 0.75, "PASS", "FAIL")
     }
+
     bd_line <- lines[grep("^BindingDensity,", lines)]
-    if(length(bd_line) == 0){
+    if (length(bd_line) == 0) {
       binding_qc <- "Missing BindingDensity"
     } else {
-      binding_density <- as.numeric(sub("BindingDensity,", "", bd_line))
-      binding_qc <- ifelse(binding_density >= 0.1 & binding_density <= 2.25, "PASS", "FAIL")
+      bd <- as.numeric(sub("BindingDensity,", "", bd_line))
+      binding_qc <- ifelse(bd >= 0.1 & bd <= 2.25, "PASS", "FAIL")
     }
-    
-    return(data.frame(
+
+    data.frame(
       File = basename(file_path),
       ImagingQC = imaging_qc,
       BindingDensityQC = binding_qc,
       stringsAsFactors = FALSE
-    ))
-}
-QC_imaging_binding <- do.call(rbind, lapply(files, ImagingQC))
-write.csv(QC_imaging_binding, "RCC_QC_report.csv", row.names = FALSE)
+    )
+  }
+
+  qc_df <- do.call(rbind, lapply(files, ImagingQC))
+
+  write.csv(
+    qc_df,
+    "C:/ST/RCC_QC_report.csv",
+    row.names = FALSE
+  )
+
+  qc_df
+})()
+
 
 
 ##Preparing raw data matrix .txt
@@ -180,7 +200,19 @@ annotation2 <- (function(x){
 
 
 #Visualizing first part just for fun
-matrix_sort <- (function(x){
+negative_ctrl_boxplot <- (function(x){
+  neg_probes <- c("NegPrb1","NegPrb2","NegPrb3","NegPrb4","NegPrb5")
+  neg_data <- matrix4[neg_probes, , drop = FALSE]
+  boxplot(
+    neg_data,
+    las = 2,
+    main = "Negative controls per sample",
+    ylab = "Signal",
+    outline = FALSE)
+})(neg_probes)
+
+
+matrix_sort_heatmap <- (function(x){
   sorted_cols <- rownames(annotation2)[order(annotation2$distance)]
   matrix <- matrix5[, sorted_cols]
   pheatmap(matrix,
