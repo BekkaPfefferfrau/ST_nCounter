@@ -16,7 +16,7 @@ QC_imaging_binding <- (function() {
 
   files <- list.files(
     "C:/ST",
-    pattern = "^[^~].*\\.RCC$",
+    pattern = "\\.RCC$",
     full.names = TRUE
   )
 
