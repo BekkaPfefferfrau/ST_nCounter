@@ -1,11 +1,11 @@
 library(openxlsx)
+library(dplyr)
+library(tidyr)
 library(pheatmap)
 
-# Base directory and normalization methods
 base_dir <- "C:/ST/reanalisincounter"
 norm_methods <- c("backgorund corr", "HK", "SCALINGarea", "SCALINGnuclei")
 
-# Annotations
 annotations <- c(
   "distance CD3 near vs baseline far", 
   "distance CD30 near vs baseline far", 
@@ -18,85 +18,69 @@ annotations <- c(
   "relapse CD68 relapse vs baseline CR"
 )
 
-heatmap_list <- list()
+pdf(file = "normalisation_comparison_4heatmaps.pdf", width = 12, height = 10)
 
-for(annot in annotations) {
+# Loop over normalization methods
+for(norm in norm_methods){
   
-  annot_data <- list()
-  row_labels <- NULL
+  all_annotations_df <- list()
   
-  for(norm in norm_methods) {
-    # Match files starting with normalization method and containing annotation
+  for(annot in annotations){
     file_path <- list.files(
       base_dir,
       pattern = paste0("^", norm, ".*", annot, ".*\\.xlsx$"),
       full.names = TRUE
     )
     
-    if(length(file_path) == 0) {
+    if(length(file_path) == 0){
       warning(paste("No file found for", annot, "with normalization", norm))
-      annot_data[[norm]] <- NA
       next
     }
     
     temp <- read.xlsx(file_path)
-    
-    if(ncol(temp) < 4 || nrow(temp) <= 7) {
+    if(ncol(temp) < 4 || nrow(temp) <= 7){
       warning(paste("File too small or missing required columns in", file_path))
-      annot_data[[norm]] <- NA
       next
     }
     
-    # Column 4 = Log2 values, Column 3 = gene names
-    annot_data[[norm]] <- as.numeric(temp[-c(1:7), 4])
+    log2_values <- as.numeric(temp[-c(1:7), 4])
+    pathways <- temp[-c(1:7), 2]
     
-    # Store gene names from first valid file
-    if(is.null(row_labels)) {
-      row_labels <- temp[-c(1:7), 3]
-    }
+    df <- data.frame(Pathways = pathways,
+                     Value = log2_values,
+                     Annotation = annot,
+                     stringsAsFactors = FALSE) %>%
+      mutate(Pathways = strsplit(as.character(Pathways), ",\\s*")) %>%
+      tidyr::unnest(Pathways)
+    
+    all_annotations_df[[annot]] <- df
   }
   
-  # Pad all columns to same length
-  max_len <- max(sapply(annot_data, length))
-  for(i in seq_along(annot_data)) {
-    length(annot_data[[i]]) <- max_len
-  }
+  combined_df <- bind_rows(all_annotations_df)
   
-  # Pad row names to match max_len
-  if(length(row_labels) < max_len){
-    row_labels <- c(row_labels, rep("", max_len - length(row_labels)))
-  }
+  # Compute mean Log2 per pathway x annotation
+  mat <- combined_df %>%
+    group_by(Pathways, Annotation) %>%
+    summarize(MeanLog2 = mean(Value, na.rm = TRUE), .groups = "drop") %>%
+    pivot_wider(names_from = Annotation, values_from = MeanLog2)
   
-  annot_data_df <- as.data.frame(annot_data)
-  colnames(annot_data_df) <- paste0(norm_methods[1:ncol(annot_data_df)], "_Log2")
-  rownames(annot_data_df) <- row_labels
+  rownames_mat <- mat$Pathways
+  mat <- as.matrix(mat[,-1])
+  rownames(mat) <- rownames_mat
   
-  heatmap_list[[annot]] <- annot_data_df
-}
-
-# Save all heatmaps to PDF
-pdf(file = "normalisation_comparison.pdf", width = 12, height = 10)
-
-for(annot in names(heatmap_list)) {
-  mat <- as.matrix(heatmap_list[[annot]])
-  
-  # Define symmetric color palette around 0
-  max_val <- max(abs(mat), na.rm = TRUE)  # largest absolute value
+  # Symmetric color scale
+  max_val <- max(abs(mat), na.rm = TRUE)
   color_palette <- colorRampPalette(c("blue", "white", "red"))(100)
   
-  print(
-    pheatmap(
-      mat,
-      main = annot,
-      cluster_rows = TRUE,
-      cluster_cols = FALSE,
-      color = color_palette,
-      breaks = seq(-max_val, max_val, length.out = 101),  # center at 0
-      na_col = "grey",
-      show_rownames = TRUE,
-      fontsize_row = 6
-    )
-  )
+  pheatmap(mat,
+           main = paste("Normalization:", norm),
+           cluster_rows = TRUE,
+           cluster_cols = FALSE,
+           color = color_palette,
+           breaks = seq(-max_val, max_val, length.out = 101),
+           na_col = "grey",
+           fontsize_row = 6,
+           fontsize_col = 8)
 }
 
 dev.off()
