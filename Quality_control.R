@@ -4,7 +4,7 @@
 QC_imaging_binding <- (function() {
   
   files <- list.files(
-    "C:/ST",
+    "C:/Users/Linfomi2/Documents/ST_nCounter/.RCC",
     pattern = "\\.RCC$",
     full.names = TRUE
   )
@@ -33,8 +33,10 @@ QC_imaging_binding <- (function() {
     }
     
     data.frame(
-      File = basename(file_path),
-      ImagingQC = imaging_qc,
+      .RCC_file = basename(file_path),
+      FoVRaw = fov_counted,
+      FoVRegistrationQC = imaging_qc,
+      BindingDensityRaw = bd,
       BindingDensityQC = binding_qc,
       stringsAsFactors = FALSE
     )
@@ -42,9 +44,10 @@ QC_imaging_binding <- (function() {
   
   qc_df <- do.call(rbind, lapply(files, ImagingQC))
   
+  
   write.csv(
     qc_df,
-    "C:/ST/RCC_QC_report.csv",
+    "C:/Users/Linfomi2/Documents/ST_nCounter/Reports/1.RCC_QC_report.csv",
     row.names = FALSE
   )
   
@@ -55,14 +58,14 @@ QC_imaging_binding <- (function() {
 ##Preparing raw data matrix .txt
 # **this untangled data was provided by our collaborator, using DSPDA suite**
 
-matrix1 = read.table("C:/ST/matrix.txt", sep = "\t", header = FALSE)
+matrix1 = read.table("C:/Users/Linfomi2/Documents/ST_nCounter/Normalisation_R/matrix.txt", sep = "\t", header = FALSE)
 #creating "matrix1" from the raw data file
 
 matrix2 <- (function(x){
   m <- as.matrix(apply(x[-c(1:7), -c(1:2)], 2, as.numeric))
   rownames(m) <- x[-c(1:7), 2]
   colnames(m) <- apply(t(x[c(1, 2, 5), -c(1:2)]), 1, function(y) paste(y[1:3], collapse = "_"))
-  return(m)  # <- entscheidend
+  return(m)
 })(matrix1)
 #creating a numeric table from matrix1 that contains only the numbers
 #setting the rownames, using the geneID string from matrix1
@@ -82,7 +85,7 @@ write.csv(
       ifelse(!is.na(fac) & fac >= 0.3 & fac <= 3, "PASS", "FAIL")
     })(matrix2["HYB-POS", ])
   ),
-  "HYB-POS_QC_report.csv",
+  "C:/Users/Linfomi2/Documents/ST_nCounter/Reports/2.HYB-POS_QC_report.csv",
   row.names = FALSE
 )
 #creating a .csv file containing the HYB_POS_QC_report
